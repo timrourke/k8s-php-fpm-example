@@ -1,0 +1,122 @@
+# Service to expose PHP-FPM
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fpm
+spec:
+  selector:
+    app: fpm
+  ports:
+    - protocol: TCP
+      port: 9000
+      targetPort: 9000
+
+# PHP-FPM application
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fpm
+spec:
+  selector:
+    matchLabels:
+      app: fpm
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: fpm
+    spec:
+      containers:
+        - name: fpm
+          image: k8s-php-fpm-example
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 9000
+
+# NGINX config for app's vhost
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-conf
+data:
+  app.conf: |
+    server {
+        # This clever solution removes the need of sharing the PHP source with
+        # NGINX to serve a PHP-FPM application. If you did need to serve actual
+        # files directly from your PHP-FPM app's container's filesystem (why?)
+        # then you might explore using a shared volume to keep things in sync.
+        # @see https://stackoverflow.com/a/51901688/3159330
+        location / {
+            rewrite ^ /index.php last;
+        }
+
+        location ~* \.php$ {
+            root /srv/app/public;
+            fastcgi_pass fpm:9000;
+            fastcgi_split_path_info ^(.+\.php)(/.*)$;
+            include fastcgi_params;
+            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+            fastcgi_param DOCUMENT_ROOT $document_root;
+            internal;
+        }
+
+        location ~ \.php$ {
+            return 404;
+        }
+
+        # Volumes might make sense for the nginx logs? Not sure the k8s idiom
+        # for this yet.
+        error_log /var/log/nginx/project_error.log;
+        access_log /var/log/nginx/project_access.log;
+    }
+
+# NGINX deployment
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+spec:
+  selector:
+    matchLabels:
+      app: MyApp
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: MyApp
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.7.9
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - mountPath: /etc/nginx/conf.d
+              readOnly: true
+              name: nginx-conf
+      volumes:
+        - name: nginx-conf
+          configMap:
+            name: nginx-conf
+            items:
+              - key: app.conf
+                path: app.conf
+
+# Service to expose NGINX via NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-service
+spec:
+  selector:
+    app: MyApp
+  type: NodePort
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
