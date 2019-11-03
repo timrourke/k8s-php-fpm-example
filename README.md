@@ -8,5 +8,5 @@ If you are running a cluster locally using minikube, you should be able to creat
 eval $(minikube docker-env) # Point your local Docker client to the K8s environment to build images there instead of on your host
 ./build.sh # Build a Docker image of the demo Symfony app in ./app
 ./deploy.sh # Apply the k8s.yaml config to deploy the app
-curl -v "$(minikube ip):$(kubectl get services/app-service -o jsonpath='{.spec.ports[0].nodePort}')/healthz"
+curl -v "$(minikube ip):$(kubectl get services/app -o jsonpath='{.spec.ports[0].nodePort}')/healthz"
 ```
